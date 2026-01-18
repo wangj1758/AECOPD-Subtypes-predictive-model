@@ -42,8 +42,8 @@ st.write("""
 st.sidebar.header("📋 临床特征输入")
 st.sidebar.write("请输入患者的临床特征值：")
 
-# 定义特征输入（连续变量）
-st.sidebar.subheader("连续型变量")
+# 定义特征输入
+st.sidebar.subheader("理化指标")
 
 FVC = st.sidebar.number_input(
     "FVC最佳预计值 (%)", 
@@ -93,8 +93,8 @@ basophil = st.sidebar.number_input(
     help="范围: 0.0-16.5"
 )
 
-# 定义特征输入（二分类变量）
-st.sidebar.subheader("二分类变量 (0=无，1=有)")
+# 定义特征输入
+st.sidebar.subheader("中医证候、四诊")
 
 fever = st.sidebar.selectbox(
     "发热", 
@@ -141,6 +141,34 @@ feature_names = [
     '载脂蛋白A', '痰黄', '镁', '平均血红蛋白量', 
     '苔白', '嗜碱性粒细胞比率', '舌暗', '咳嗽'
 ]
+
+# 创建SHAP explainer（使用缓存避免重复创建）
+@st.cache_resource
+def create_shap_explainer(_model):
+    """创建SHAP解释器，使用Kernel或Permutation方法支持Stacking模型"""
+    try:
+        # 生成背景数据集（使用特征的中位数或均值）
+        background_data = np.array([[
+            80.0,   # FVC
+            0,      # 发热
+            0,      # 痰热壅肺证
+            300.0,  # 尿酸
+            1.2,    # 载脂蛋白A
+            0,      # 痰黄
+            0.9,    # 镁
+            30.0,   # 平均血红蛋白量
+            0,      # 苔白
+            0.5,    # 嗜碱性粒细胞比率
+            0,      # 舌暗
+            0       # 咳嗽
+        ]])
+        
+        # 使用KernelExplainer（适用于任何模型）
+        explainer = shap.KernelExplainer(_model.predict_proba, background_data)
+        return explainer
+    except Exception as e:
+        st.warning(f"SHAP解释器创建失败: {e}")
+        return None
 
 # 主页面用于结果展示
 if predict_button:
@@ -224,56 +252,73 @@ if predict_button:
             st.header("🔍 SHAP可解释性分析")
             st.write("以下分析展示了各特征对预测结果的影响程度：")
             
-            try:
-                with st.spinner('正在生成SHAP分析图...'):
-                    # 创建SHAP解释器
-                    explainer = shap.TreeExplainer(stacking_classifier)
-                    shap_values = explainer.shap_values(input_array)
-                    
-                    # 如果是多分类，shap_values是列表
-                    if isinstance(shap_values, list):
-                        shap_values_for_prediction = shap_values[prediction]
-                    else:
-                        shap_values_for_prediction = shap_values
-                    
-                    # 创建SHAP force plot
-                    st.subheader(f"对{subtype_info[prediction]['name']}预测的特征贡献")
-                    
-                    # Waterfall plot (更清晰的可视化)
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    shap.plots.waterfall(
-                        shap.Explanation(
-                            values=shap_values_for_prediction[0],
-                            base_values=explainer.expected_value[prediction] if isinstance(explainer.expected_value, list) else explainer.expected_value,
-                            data=input_array[0],
-                            feature_names=feature_names
-                        ),
-                        show=False
-                    )
-                    st.pyplot(fig)
-                    plt.close()
-                    
-                    # 特征重要性条形图
-                    st.subheader("特征重要性排序")
-                    feature_importance = pd.DataFrame({
-                        '特征': feature_names,
-                        '贡献值': np.abs(shap_values_for_prediction[0])
-                    }).sort_values('贡献值', ascending=False)
-                    
-                    fig2, ax2 = plt.subplots(figsize=(10, 6))
-                    ax2.barh(feature_importance['特征'], feature_importance['贡献值'])
-                    ax2.set_xlabel('SHAP值绝对值')
-                    ax2.set_title('特征对预测结果的影响程度')
-                    plt.tight_layout()
-                    st.pyplot(fig2)
-                    plt.close()
-                    
-                    # 显示数值表格
-                    st.dataframe(feature_importance, use_container_width=True)
-                    
-            except Exception as e:
-                st.warning(f"SHAP分析生成失败: {e}")
-                st.info("注意：SHAP分析需要模型支持TreeExplainer，请确保使用的是树模型。")
+            # 添加SHAP分析开关
+            enable_shap = st.checkbox("启用SHAP分析（计算较慢，约需10-30秒）", value=False)
+            
+            if enable_shap:
+                try:
+                    with st.spinner('正在生成SHAP分析图，请稍候...'):
+                        # 创建SHAP解释器
+                        explainer = create_shap_explainer(stacking_classifier)
+                        
+                        if explainer is not None:
+                            # 计算SHAP值
+                            shap_values = explainer.shap_values(input_array, nsamples=100)
+                            
+                            # shap_values是一个数组，每个类别一个
+                            if isinstance(shap_values, list) and len(shap_values) > 0:
+                                shap_values_for_prediction = shap_values[prediction]
+                            else:
+                                shap_values_for_prediction = shap_values
+                            
+                            # 创建特征重要性条形图（简化版本）
+                            st.subheader(f"对{subtype_info[prediction]['name']}预测的特征贡献")
+                            
+                            # 计算特征重要性
+                            if len(shap_values_for_prediction.shape) > 1:
+                                feature_importance_values = shap_values_for_prediction[0]
+                            else:
+                                feature_importance_values = shap_values_for_prediction
+                            
+                            feature_importance = pd.DataFrame({
+                                '特征': feature_names,
+                                'SHAP值': feature_importance_values,
+                                '绝对贡献': np.abs(feature_importance_values)
+                            }).sort_values('绝对贡献', ascending=False)
+                            
+                            # 绘制特征重要性图
+                            fig, ax = plt.subplots(figsize=(10, 6))
+                            colors = ['red' if x < 0 else 'green' for x in feature_importance['SHAP值']]
+                            ax.barh(feature_importance['特征'], feature_importance['SHAP值'], color=colors, alpha=0.7)
+                            ax.set_xlabel('SHAP值 (对预测的影响)', fontsize=12)
+                            ax.set_title(f'各特征对{subtype_info[prediction]["name"]}预测的影响\n(正值增加该亚型概率，负值降低该亚型概率)', fontsize=12)
+                            ax.axvline(x=0, color='black', linestyle='-', linewidth=0.5)
+                            plt.tight_layout()
+                            st.pyplot(fig)
+                            plt.close()
+                            
+                            # 显示数值表格
+                            st.subheader("特征贡献详细数据")
+                            display_importance = feature_importance[['特征', 'SHAP值', '绝对贡献']].copy()
+                            display_importance['SHAP值'] = display_importance['SHAP值'].apply(lambda x: f"{x:.4f}")
+                            display_importance['绝对贡献'] = display_importance['绝对贡献'].apply(lambda x: f"{x:.4f}")
+                            st.dataframe(display_importance, use_container_width=True)
+                            
+                            # 解释说明
+                            st.info("""
+                            **SHAP值解释：**
+                            - **正值（绿色）**: 该特征增加了预测为当前亚型的概率
+                            - **负值（红色）**: 该特征降低了预测为当前亚型的概率
+                            - **绝对值大小**: 表示该特征对预测的影响强度
+                            """)
+                        else:
+                            st.warning("SHAP解释器创建失败，无法生成分析图。")
+                            
+                except Exception as e:
+                    st.error(f"SHAP分析生成失败: {e}")
+                    st.info("提示：Stacking模型的SHAP分析计算较慢，这是正常现象。如遇到错误，可以尝试关闭SHAP分析继续使用预测功能。")
+            else:
+                st.info("👆 勾选上方复选框以启用SHAP分析（由于Stacking模型的复杂性，分析需要较长时间）")
         
         except Exception as e:
             st.error(f"❌ 预测时发生错误：{e}")
