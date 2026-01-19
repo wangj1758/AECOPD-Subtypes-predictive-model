@@ -3,13 +3,22 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import joblib
-import shap
 import matplotlib.pyplot as plt
 import matplotlib
+import platform
 
-# 设置中文字体
-matplotlib.rcParams['font.sans-serif'] = ['SimHei']
-matplotlib.rcParams['axes.unicode_minus'] = False
+# 设置中文字体 - 根据操作系统选择
+def set_chinese_font():
+    system = platform.system()
+    if system == 'Windows':
+        matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
+    elif system == 'Darwin':  # macOS
+        matplotlib.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'PingFang SC']
+    else:  # Linux (Streamlit Cloud)
+        matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'WenQuanYi Micro Hei']
+    matplotlib.rcParams['axes.unicode_minus'] = False
+
+set_chinese_font()
 
 # 加载模型
 model_path = "stacking_Classifier_model.pkl"
@@ -154,7 +163,10 @@ if predict_button:
         # 模型预测
         prediction = stacking_classifier.predict(input_array)[0]
         prediction_proba = stacking_classifier.predict_proba(input_array)[0]
-
+        
+        # 🔥 修复：找到最高概率对应的亚型
+        max_proba_index = np.argmax(prediction_proba)
+        
         # 亚型映射及1年内急性加重再住院率
         subtype_info = {
             0: {"name": "亚型1", "readmission_rate": 19.2},
@@ -163,26 +175,26 @@ if predict_button:
             3: {"name": "亚型4", "readmission_rate": 10.1}
         }
 
-        # 显示预测结果
+        # 显示预测结果（使用最高概率的亚型）
         col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
-            st.success(f"### 预测亚型：{subtype_info[prediction]['name']}")
+            st.success(f"### 预测亚型：{subtype_info[max_proba_index]['name']}")
             st.metric(
-                label="预测置信度", 
-                value=f"{prediction_proba[prediction]*100:.2f}%"
+                label="预测概率", 
+                value=f"{prediction_proba[max_proba_index]*100:.2f}%"
             )
         
         with col2:
             st.info(f"### 1年内急性加重再住院率")
             st.metric(
                 label="再住院风险", 
-                value=f"{subtype_info[prediction]['readmission_rate']}%"
+                value=f"{subtype_info[max_proba_index]['readmission_rate']}%"
             )
         
         with col3:
             st.warning("### 风险等级")
-            risk_level = "高风险" if subtype_info[prediction]['readmission_rate'] >= 15 else "中低风险"
+            risk_level = "高风险" if subtype_info[max_proba_index]['readmission_rate'] >= 15 else "中低风险"
             risk_color = "🔴" if risk_level == "高风险" else "🟡"
             st.metric(
                 label="评估", 
@@ -194,6 +206,7 @@ if predict_button:
         col_chart1, col_chart2 = st.columns(2)
         
         with col_chart1:
+            st.write("**各亚型预测概率**")
             proba_df = pd.DataFrame({
                 '亚型': [subtype_info[i]['name'] for i in range(len(prediction_proba))],
                 '概率': prediction_proba * 100
@@ -201,6 +214,7 @@ if predict_button:
             st.bar_chart(proba_df.set_index('亚型'))
         
         with col_chart2:
+            st.write("**各亚型再住院率对比**")
             # 各亚型再住院率对比
             readmission_df = pd.DataFrame({
                 '亚型': [subtype_info[i]['name'] for i in range(4)],
@@ -215,16 +229,20 @@ if predict_button:
             '预测概率': [f"{p*100:.2f}%" for p in prediction_proba],
             '1年内急性加重再住院率': [f"{subtype_info[i]['readmission_rate']}%" for i in range(4)]
         })
-        st.dataframe(proba_table, use_container_width=True)
+        # 高亮显示预测亚型
+        def highlight_predicted(row):
+            if row['亚型'] == subtype_info[max_proba_index]['name']:
+                return ['background-color: #90EE90'] * len(row)
+            return [''] * len(row)
+        
+        styled_table = proba_table.style.apply(highlight_predicted, axis=1)
+        st.dataframe(styled_table, use_container_width=True)
         
         # SHAP可解释性分析
         st.subheader("🔍 SHAP模型可解释性分析")
         
         try:
-            # 创建SHAP explainer
-            with st.spinner("正在计算SHAP值..."):
-                st.info("💡 提示：SHAP分析需要较长时间计算，首次使用可能需要1-2分钟")
-                
+            with st.spinner("正在生成特征分析图..."):
                 # 特征名称
                 feature_names = ['FVC最佳预计值', '发热', '痰热壅肺证', '尿酸', 
                                '载脂蛋白A', '痰黄', '镁', '平均血红蛋白量', 
@@ -232,16 +250,33 @@ if predict_button:
                 
                 # 显示输入特征值的可视化
                 input_features_df = pd.DataFrame({
-                    '特征名称': feature_names,
-                    '输入值': input_array[0]
+                    'Feature': feature_names,
+                    'Value': input_array[0]
                 })
                 
+                # 使用Streamlit的原生图表（避免中文显示问题）
+                st.write("**当前患者特征分布**")
+                
+                # 创建matplotlib图表，使用英文标签避免中文问题
                 fig, ax = plt.subplots(figsize=(10, 6))
-                ax.barh(input_features_df['特征名称'], input_features_df['输入值'])
-                ax.set_xlabel('特征值', fontsize=12)
-                ax.set_title('当前患者特征分布', fontsize=14, fontweight='bold')
+                colors = ['#1f77b4' if x > 0 else '#ff7f0e' for x in input_features_df['Value']]
+                ax.barh(range(len(feature_names)), input_features_df['Value'], color=colors)
+                ax.set_yticks(range(len(feature_names)))
+                ax.set_yticklabels(feature_names)
+                ax.set_xlabel('Feature Value', fontsize=12)
+                ax.set_title('Patient Feature Distribution', fontsize=14, fontweight='bold')
+                ax.grid(axis='x', alpha=0.3)
                 plt.tight_layout()
                 st.pyplot(fig)
+                
+                # 显示特征值表格
+                st.write("**特征值详情**")
+                feature_table = pd.DataFrame({
+                    '特征名称': feature_names,
+                    '输入值': input_array[0],
+                    '数据类型': ['连续' if i < 6 else '分类' for i in range(12)]
+                })
+                st.dataframe(feature_table, use_container_width=True)
                 
                 st.info("""
                 **SHAP分析说明：**
@@ -254,7 +289,7 @@ if predict_button:
                 """)
                 
         except Exception as e:
-            st.warning(f"SHAP分析暂时不可用: {str(e)}")
+            st.warning(f"特征分析暂时不可用: {str(e)}")
         
     except Exception as e:
         st.error(f"❌ 预测时发生错误：{e}")
@@ -272,6 +307,11 @@ with st.expander("📝 查看当前输入的特征值"):
             FVC, fever, tan_re, uric_acid, 
             apoA, tan_huang, Mg, MCH, 
             tai_bai, basophil, she_an, cough
+        ],
+        '单位/说明': [
+            '%', '0=无 1=有', '0=无 1=有', 'μmol/L',
+            'g/L', '0=无 1=有', 'mmol/L', 'pg',
+            '0=无 1=有', '%', '0=无 1=有', '0=无 1=有'
         ]
     })
     st.dataframe(input_summary, use_container_width=True)
@@ -319,7 +359,7 @@ st.markdown("""
         所有预测结果应由专业医生结合临床实际情况进行综合判断。
     </p>
     <p style='font-size: 10px; color: gray;'>
-        版本: 2.0 | 更新日期: 2025-01
+        版本: 2.1 | 更新日期: 2025-01 | 修复预测逻辑和中文显示
     </p>
 </div>
 """, unsafe_allow_html=True)
