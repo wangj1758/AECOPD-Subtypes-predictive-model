@@ -88,68 +88,72 @@ if predict_button:
     st.header("📊 预测结果")
     
     try:
-        # 将输入特征转换为模型所需格式（按照训练时的特征顺序）
-        # 特征顺序：平均血红蛋白量, 载脂蛋白A, 尿酸, FVC占预计值的百分比, 发热, 痰热壅肺证
+        # 【重要修复】将输入特征转换为模型所需格式（按照训练时的特征顺序）
+        # 训练时的正确特征顺序：平均血红蛋白量, 发热, 痰热壅肺证, 载脂蛋白A, 尿酸, FVC_BEST/PRED
         input_array = np.array([
             MCH,           # 平均血红蛋白量
-            apoA,          # 载脂蛋白A
-            uric_acid,     # 尿酸
-            FVC,           # FVC占预计值的百分比
-            fever,         # 发热
-            tan_re         # 痰热壅肺证
+            fever,         # 发热 (注意：移到第2位)
+            tan_re,        # 痰热壅肺证 (注意：移到第3位)
+            apoA,          # 载脂蛋白A (注意：移到第4位)
+            uric_acid,     # 尿酸 (注意：移到第5位)
+            FVC            # FVC占预计值的百分比 (注意：移到第6位)
         ]).reshape(1, -1)
 
         # 模型预测
         prediction = stacking_classifier.predict(input_array)[0]
         prediction_proba = stacking_classifier.predict_proba(input_array)[0]
         
-        # 找到最高概率对应的亚型
-        max_proba_index = np.argmax(prediction_proba)
+        # 【重要修复】模型的类别标签是1,2,3,4，需要映射到概率数组索引
+        # prediction_proba[0] 对应亚型1, prediction_proba[1] 对应亚型2, 以此类推
         
-        # 亚型映射及1年内急性加重再住院率
+        # 亚型映射及1年内急性加重再住院率（使用1-4作为键，与模型预测结果对应）
         subtype_info = {
-            0: {
+            1: {
                 "name": "亚型1", 
                 "readmission_rate": 19.2, 
                 "description": "痰热壅肺证合并发热型 - 高风险亚型，需要密切随访和积极干预"
             },
-            1: {
+            2: {
                 "name": "亚型2", 
                 "readmission_rate": 14.5, 
                 "description": "无痰热壅肺证及发热型 - 中等风险亚型，建议定期随访和预防性治疗"
             },
-            2: {
+            3: {
                 "name": "亚型3", 
                 "readmission_rate": 14.0, 
                 "description": "发热无痰热壅肺证型 - 中等风险亚型，建议定期随访和预防性治疗"
             },
-            3: {
+            4: {
                 "name": "亚型4", 
                 "readmission_rate": 10.1, 
                 "description": "痰热壅肺证无发热型 - 低风险亚型，建议常规随访"
             }
         }
 
-        # 显示预测结果（使用最高概率的亚型）
+        # 预测结果即为亚型编号(1-4)
+        predicted_subtype = prediction
+        predicted_proba = prediction_proba[predicted_subtype - 1]  # 概率数组索引从0开始
+
+        # 显示预测结果
         col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
-            st.success(f"### 预测亚型：{subtype_info[max_proba_index]['name']}")
+            st.success(f"### 预测亚型：{subtype_info[predicted_subtype]['name']}")
             st.metric(
                 label="预测概率", 
-                value=f"{prediction_proba[max_proba_index]*100:.2f}%"
+                value=f"{predicted_proba*100:.2f}%"
             )
         
         with col2:
             st.info(f"### 1年内急性加重再住院率")
             st.metric(
                 label="再住院风险", 
-                value=f"{subtype_info[max_proba_index]['readmission_rate']}%"
+                value=f"{subtype_info[predicted_subtype]['readmission_rate']}%"
             )
         
         with col3:
             st.warning("### 风险等级")
-            risk_level = "高风险" if subtype_info[max_proba_index]['readmission_rate'] >= 15 else "中低风险"
+            risk_level = "高风险" if subtype_info[predicted_subtype]['readmission_rate'] >= 15 else "中低风险"
             risk_color = "🔴" if risk_level == "高风险" else "🟡"
             st.metric(
                 label="评估", 
@@ -157,7 +161,7 @@ if predict_button:
             )
         
         # 临床建议
-        st.info(f"**临床建议：** {subtype_info[max_proba_index]['description']}")
+        st.info(f"**临床建议：** {subtype_info[predicted_subtype]['description']}")
         
         st.markdown("---")
         
@@ -168,7 +172,7 @@ if predict_button:
         with col_chart1:
             st.write("**各亚型预测概率**")
             proba_df = pd.DataFrame({
-                '亚型': [subtype_info[i]['name'] for i in range(len(prediction_proba))],
+                '亚型': [subtype_info[i]['name'] for i in range(1, 5)],
                 '概率(%)': prediction_proba * 100
             })
             st.bar_chart(proba_df.set_index('亚型'))
@@ -176,24 +180,24 @@ if predict_button:
         with col_chart2:
             st.write("**各亚型再住院率对比**")
             readmission_df = pd.DataFrame({
-                '亚型': [subtype_info[i]['name'] for i in range(4)],
-                '再住院率(%)': [subtype_info[i]['readmission_rate'] for i in range(4)]
+                '亚型': [subtype_info[i]['name'] for i in range(1, 5)],
+                '再住院率(%)': [subtype_info[i]['readmission_rate'] for i in range(1, 5)]
             })
             st.bar_chart(readmission_df.set_index('亚型'))
         
         # 详细概率表格
         st.subheader("📋 详细预测概率与再住院率")
         proba_table = pd.DataFrame({
-            '亚型': [subtype_info[i]['name'] for i in range(len(prediction_proba))],
+            '亚型': [subtype_info[i]['name'] for i in range(1, 5)],
             '预测概率': [f"{p*100:.2f}%" for p in prediction_proba],
-            '1年内急性加重再住院率': [f"{subtype_info[i]['readmission_rate']}%" for i in range(4)],
-            '风险等级': ['高风险' if subtype_info[i]['readmission_rate'] >= 15 else '中低风险' for i in range(4)],
-            '临床建议': [subtype_info[i]['description'] for i in range(4)]
+            '1年内急性加重再住院率': [f"{subtype_info[i]['readmission_rate']}%" for i in range(1, 5)],
+            '风险等级': ['高风险' if subtype_info[i]['readmission_rate'] >= 15 else '中低风险' for i in range(1, 5)],
+            '临床建议': [subtype_info[i]['description'] for i in range(1, 5)]
         })
         
         # 高亮显示预测亚型
         def highlight_predicted(row):
-            if row['亚型'] == subtype_info[max_proba_index]['name']:
+            if row['亚型'] == subtype_info[predicted_subtype]['name']:
                 return ['background-color: #90EE90'] * len(row)
             return [''] * len(row)
         
@@ -543,7 +547,7 @@ st.markdown("""
         所有预测结果应由专业医生结合临床实际情况进行综合判断。
     </p>
     <p style='font-size: 10px; color: gray; margin-top: 5px;'>
-        版本: 1.0  | 更新日期: 2025-01-20 | 特征数: 6个关键特征
+        版本: 1.0 | 更新日期: 2025-01-20 | 特征数: 6个关键特征
     </p>
 </div>
 """, unsafe_allow_html=True)
