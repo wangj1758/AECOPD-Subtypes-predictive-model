@@ -87,44 +87,24 @@ predict_button = st.sidebar.button("🔮 开始预测", type="primary")
 if predict_button:
     st.header("📊 预测结果")
     
-    # 显示调试信息开关
-    show_debug = st.checkbox("🔍 显示调试信息", value=True)
-    
     try:
-        # 构建输入数组
+        # 将输入特征转换为模型所需格式（按照训练时的特征顺序）
+        # 特征顺序：平均血红蛋白量, 载脂蛋白A, 尿酸, FVC占预计值的百分比, 发热, 痰热壅肺证
         input_array = np.array([
-            MCH, apoA, uric_acid, FVC, fever, tan_re
+            MCH,           # 平均血红蛋白量
+            apoA,          # 载脂蛋白A
+            uric_acid,     # 尿酸
+            FVC,           # FVC占预计值的百分比
+            fever,         # 发热
+            tan_re         # 痰热壅肺证
         ]).reshape(1, -1)
-        
-        if show_debug:
-            st.subheader("🐛 调试信息")
-            st.code(f"""
-模型类型: {type(stacking_classifier)}
-输入形状: {input_array.shape}
-输入内容: {input_array[0]}
-特征顺序: ['MCH', 'apoA', 'uric_acid', 'FVC', 'fever', 'tan_re']
-            """)
-        
+
         # 模型预测
         prediction = stacking_classifier.predict(input_array)[0]
         prediction_proba = stacking_classifier.predict_proba(input_array)[0]
+        
+        # 找到最高概率对应的亚型
         max_proba_index = np.argmax(prediction_proba)
-        
-        if show_debug:
-            st.code(f"""
-预测类别: {prediction}
-原始概率: {prediction_proba}
-概率总和: {np.sum(prediction_proba):.6f}
-最大概率索引: {max_proba_index}
-最大概率值: {prediction_proba[max_proba_index]:.6f}
-            """)
-        
-        # 检查异常情况
-        if np.allclose(prediction_proba, prediction_proba[0]):
-            st.error("⚠️ 警告: 所有类别的概率相同,模型可能未正确加载!")
-        
-        if np.sum(prediction_proba) < 0.99 or np.sum(prediction_proba) > 1.01:
-            st.error("⚠️ 警告: 概率总和不为1,模型输出异常!")
         
         # 亚型映射及1年内急性加重再住院率
         subtype_info = {
