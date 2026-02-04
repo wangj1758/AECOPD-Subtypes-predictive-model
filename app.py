@@ -273,7 +273,7 @@ if predict_button:
         with col_chart1:
             st.write("**各亚型预测概率**")
             proba_df = pd.DataFrame({
-                '亚型': [f"{SUBTYPE_INFO[i]['name']}\n{SUBTYPE_INFO[i]['full_name']}" for i in range(1, 7)],
+                '亚型': [f"{SUBTYPE_INFO[i]['name']}" for i in range(1, 7)],
                 '概率(%)': prediction_proba * 100
             })
             st.bar_chart(proba_df.set_index('亚型'))
@@ -281,7 +281,7 @@ if predict_button:
         with col_chart2:
             st.write("**各亚型再住院率对比**")
             readmission_df = pd.DataFrame({
-                '亚型': [f"{SUBTYPE_INFO[i]['name']}\n{SUBTYPE_INFO[i]['full_name']}" for i in range(1, 7)],
+                '亚型': [f"{SUBTYPE_INFO[i]['name']}" for i in range(1, 7)],
                 '再住院率(%)': [SUBTYPE_INFO[i]['readmission_rate'] for i in range(1, 7)]
             })
             st.bar_chart(readmission_df.set_index('亚型'))
@@ -719,7 +719,7 @@ st.sidebar.info("""
 - **基学习器**：RF, XGB, LGBM, GBM, AdaBoost, CatBoost
 - **元学习器**：Logistic Regression
 - **特征数量**：6个关键特征
-  - 中医证候：3项
+  - 中医特征：3项
   - 理化指标：3项
 - **预测类别**：6个亚型
 - **性能指标**：
