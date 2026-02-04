@@ -94,7 +94,7 @@ SUBTYPE_INFO = {
 st.title("🏥 AECOPD出院后1年内急性加重再住院亚型预测系统")
 st.write("""
 基于Stacking集成学习模型，预测AECOPD患者出院后1年内急性加重再住院的**6个亚型**。
-本系统整合了**6个关键临床特征**（3项中医证候 + 3项理化指标），为临床决策提供辅助支持。
+本系统整合了**6个关键临床特征**（3项中医特征 + 3项理化指标），为临床决策提供辅助支持。
 """)
 
 # ============================================================================
@@ -261,21 +261,6 @@ if predict_button:
             {SUBTYPE_INFO[predicted_subtype]['secondary_features']}
             """)
         
-        with col_feature2:
-            st.success(f"""
-            **💡 临床建议：**
-            
-            {SUBTYPE_INFO[predicted_subtype]['clinical_advice']}
-            
-            **📅 建议随访频率：**
-            
-            {SUBTYPE_INFO[predicted_subtype]['follow_up']}
-            
-            **⚠️ 注意事项：**
-            
-            请结合患者病史、体格检查、影像学检查等综合评估，制定个性化治疗和随访方案。
-            """)
-        
         st.markdown("---")
         
         # ========================================================================
@@ -311,8 +296,7 @@ if predict_button:
             '亚型名称': [SUBTYPE_INFO[i]['full_name'] for i in range(1, 7)],
             '预测概率': [f"{p*100:.2f}%" for p in prediction_proba],
             '再住院率': [f"{SUBTYPE_INFO[i]['readmission_rate']}%" for i in range(1, 7)],
-            '风险等级': [f"{SUBTYPE_INFO[i]['risk_color']} {SUBTYPE_INFO[i]['risk_level']}" for i in range(1, 7)],
-            '建议随访': [SUBTYPE_INFO[i]['follow_up'] for i in range(1, 7)]
+            '风险等级': [f"{SUBTYPE_INFO[i]['risk_color']} {SUBTYPE_INFO[i]['risk_level']}" for i in range(1, 7)]
         })
         
         # 高亮显示预测亚型
@@ -396,7 +380,7 @@ if predict_button:
 with st.expander("📝 查看当前输入的特征值"):
     input_summary = pd.DataFrame({
         '特征类别': [
-            '中医证候', '中医证候', '中医证候',
+            '中医证候', '中医症状', '中医舌苔',
             '理化指标', '理化指标', '理化指标'
         ],
         '特征名称': [
@@ -490,7 +474,7 @@ with st.expander("ℹ️ 各亚型详细特征及临床意义"):
     - 血小板分布宽度偏低比例最高：38.63%
     
     **临床意义：**
-    - 中医证候表现不典型
+    - 中医特征表现不典型
     - 可能存在贫血和血液系统异常
     - 预后相对较好，但需关注血液指标
     
